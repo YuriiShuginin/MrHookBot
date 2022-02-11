@@ -3,13 +3,14 @@ import requests
 import telebot
 from bs4 import BeautifulSoup
 import re
+import time
 
 
 bot = telebot.TeleBot(config.access_token)
 
 
 def get_page() -> str:
-    url = f'{config.domain}/random/types12'
+    url = f'{config.domain}/random/types1'
     response = requests.get(url)
     web_page = response.text
     return web_page
@@ -79,6 +80,47 @@ def parse_questions(web_page) -> tuple:
             сomments.append(None)
 
     return question_texts, handouts, illustrations, answers, сomments
+
+
+@bot.message_handler(commands=['start'])
+def get_start(message):
+    bot.send_message(message.chat.id, 'Привет! Я умею задавать вопросы из базы спортивного "Что? Где? Когда?". Сыграем!')
+    web_page = get_page()
+    question_data = parse_questions(web_page)
+
+    for i in range(24):
+        bot.send_message(message.chat.id, f'Вопрос №{i + 1}')
+        
+        if question_data[1][i]:
+            bot.send_message(message.chat.id, question_data[1][i])
+        
+        comment_illustr = False
+        if question_data[2][i]:
+            if isinstance(question_data[2][i], str):
+                bot.send_photo(message.chat.id, requests.get(question_data[2][i]).content)
+            else:
+                bot.send_photo(message.chat.id, requests.get(question_data[2][i][0]).content)
+                comment_illustr = True
+        
+        bot.send_message(message.chat.id, question_data[0][i])
+
+        bot.send_message(message.chat.id, question_data[3][i])
+        
+        if comment_illustr:
+            bot.send_photo(message.chat.id, requests.get(question_data[2][i][1]).content)
+
+        if question_data[4][i]:
+            bot.send_message(message.chat.id, question_data[4][i])
+        
+        if i % 20 == 0:
+            time.sleep(11)
+    
+    bot.send_message(message.chat.id, 'Игра окончена. Буду рад сыграть с Вами снова! :)')
+
+
+@bot.message_handler(commands=['finish'])
+def get_finish(message):
+    bot.send_message(message.chat.id, 'Игра закончена досрочно. Буду рад сыграть с Вами снова! :)')
 
 
 if __name__ == '__main__':
