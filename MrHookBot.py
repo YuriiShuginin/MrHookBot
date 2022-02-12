@@ -39,8 +39,6 @@ def parse_questions(web_page) -> tuple:
     
     handouts = [] # Массив с данными о текстовых раздатках
     illustrations = [] # Массив с данными о раздатках (картинках)
-    alter_answers = [] # Массив с данными о зачёте (альтернативных ответах)
-    сomments = [] # Массив с данными о комментариях к ответам
 
     for i in range(len(questions_info)):
         handout = None
@@ -67,19 +65,17 @@ def parse_questions(web_page) -> tuple:
         else:
             illustrations.append(None)
         
-        alter_answers = None
+        alter_answers = None # Данные о зачёте (альтернативных ответах)
         alter_answers = questions_info[i].find_all(string=re.compile("Зачёт"))
         if alter_answers:
             answers[i] += "\n" + " ".join(alter_answers[0].find_parent("p").text.split())
 
-        comment = None
+        comment = None # Данные об авторских комментариях к ответам
         comment = questions_info[i].find_all(string=re.compile("Комментарий"))
         if comment:
-            сomments.append(" ".join(comment[0].find_parent("p").text.split()))
-        else:
-            сomments.append(None)
+            answers[i] += "\n\n" + " ".join(comment[0].find_parent("p").text.split())
 
-    return question_texts, handouts, illustrations, answers, сomments
+    return question_texts, handouts, illustrations, answers
 
 
 @bot.message_handler(commands=['start'])
@@ -108,11 +104,8 @@ def get_start(message):
         
         if comment_illustr:
             bot.send_photo(message.chat.id, requests.get(question_data[2][i][1]).content)
-
-        if question_data[4][i]:
-            bot.send_message(message.chat.id, question_data[4][i])
         
-        if i % 20 == 0:
+        if i % 20 == 0 and i != 0:
             time.sleep(11)
     
     bot.send_message(message.chat.id, 'Игра окончена. Буду рад сыграть с Вами снова! :)')
