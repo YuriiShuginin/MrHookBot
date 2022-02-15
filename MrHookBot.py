@@ -9,8 +9,8 @@ import time
 bot = telebot.TeleBot(config.access_token)
 
 
-def get_page() -> str:
-    url = f'{config.domain}/random/types1'
+def get_page(question_amount = 24, complexity = 'complexity0') -> str:
+    url = f'{config.domain}/random/types1/{complexity}/limit{question_amount}'
     response = requests.get(url)
     web_page = response.text
     return web_page
@@ -78,43 +78,128 @@ def parse_questions(web_page) -> tuple:
     return question_texts, handouts, illustrations, answers
 
 
+received_msg = ['status', 'text', 'chat.id']
+question_data = ()
+amount = int(0)
+
+
 @bot.message_handler(commands=['start'])
 def get_start(message):
-    bot.send_message(message.chat.id, 'Привет! Я умею задавать вопросы из базы спортивного "Что? Где? Когда?". Сыграем!')
-    web_page = get_page()
-    question_data = parse_questions(web_page)
-
-    for i in range(24):
-        bot.send_message(message.chat.id, f'Вопрос №{i + 1}')
-        
-        if question_data[1][i]:
-            bot.send_message(message.chat.id, question_data[1][i])
-        
-        comment_illustr = False
-        if question_data[2][i]:
-            if isinstance(question_data[2][i], str):
-                bot.send_photo(message.chat.id, requests.get(question_data[2][i]).content)
-            else:
-                bot.send_photo(message.chat.id, requests.get(question_data[2][i][0]).content)
-                comment_illustr = True
-        
-        bot.send_message(message.chat.id, question_data[0][i])
-
-        bot.send_message(message.chat.id, question_data[3][i])
-        
-        if comment_illustr:
-            bot.send_photo(message.chat.id, requests.get(question_data[2][i][1]).content)
-        
-        if i % 20 == 0 and i != 0:
-            time.sleep(11)
-    
-    bot.send_message(message.chat.id, 'Игра окончена. Буду рад сыграть с Вами снова! :)')
+    received_msg[2] = message
+    amount_options = ['12', '24', '36', '45', '60', '90']
+    markup=telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=3)
+    markup.add(*amount_options)
+    bot.send_message(message.chat.id, 'Привет! Я умею задавать вопросы из базы спортивного "Что? Где? Когда?".\n\nСколько вопросов Вы хотите отыграть?\n\nВы можете выбрать один из предложенных вариантов, нажав на кнопку, или ввести любое число с помощью клавиатуры.', reply_markup=markup)
+    received_msg[0] = 'wait'
+    game()
 
 
 @bot.message_handler(commands=['finish'])
 def get_finish(message):
+    # received_msg[0] = 'status'
+    # received_msg[1] = 'text'
     bot.send_message(message.chat.id, 'Игра закончена досрочно. Буду рад сыграть с Вами снова! :)')
 
+
+@bot.message_handler(content_types=['text'])
+def read_answer(message):
+    if received_msg[0] == 'wait':
+        received_msg[1] = message.text.strip()
+        received_msg[0] = 'received'
+    else:
+        bot.send_message(message.chat.id, 'Я не понял :(\nСкорее всего, это сообщение лишнее.')
+
+
+def game():
+    # Выбор количества вопросов в игре
+    while True:
+        if received_msg[0] == 'received':
+            try:
+                amount = int(received_msg[1])
+            except Exception:
+                bot.send_message(received_msg[2].chat.id, 'Я не понял :(\nПожалуйста, введите целое число или нажмите на нужную кнопку.')
+                received_msg[0] = 'wait'
+                time.sleep(0.25)
+                continue
+            break
+        else:
+            time.sleep(0.25)
+    
+    # Выбор сложности пакета вопросов для игры
+    complexity_options = ['Любой', 'Очень простой', 'Простой', 'Средний', 'Сложный', 'Очень сложный']
+    
+    markup=telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=2)
+    markup.add(*complexity_options)
+    
+    bot.send_message(received_msg[2].chat.id, 'Выберите, пожалуйста, желаемую сложность пакета вопросов, нажав на нужную кнопку.', reply_markup=markup)
+    received_msg[0] = 'wait'
+    
+    while True:
+        if received_msg[0] == 'received' and received_msg[1] in complexity_options:
+            complexity = f'complexity{complexity_options.index(received_msg[1])}'
+            bot.send_message(received_msg[2].chat.id, f'Итак, играем {received_msg[1].lower()} пакет.\nКоличество вопросов: {amount}.\nУдачи! :)', reply_markup=telebot.types.ReplyKeyboardRemove())
+            break
+        elif received_msg[0] == 'received':
+            bot.send_message(received_msg[2].chat.id, 'Я не понял :(\nПожалуйста, выберите желаемую сложность пакета вопросов с помощью кнопок.')
+            received_msg[0] = 'wait'
+            time.sleep(0.25)
+        else:
+            time.sleep(0.25)
+    
+    # Получение вопросов с сайта базы вопросов
+    web_page = get_page(amount, complexity)
+    question_data = parse_questions(web_page)
+
+    for i in range(amount):
+        # Номер вопроса
+        bot.send_message(received_msg[2].chat.id, f'Вопрос №{i + 1}')
+        
+        # Текстовая раздатка
+        if question_data[1][i]:
+            bot.send_message(received_msg[2].chat.id, question_data[1][i])
+        
+        # Раздатка (картинка)
+        comment_illustr = False
+        if question_data[2][i]:
+            if isinstance(question_data[2][i], str):
+                bot.send_photo(received_msg[2].chat.id, requests.get(question_data[2][i]).content)
+            else:
+                bot.send_photo(received_msg[2].chat.id, requests.get(question_data[2][i][0]).content)
+                comment_illustr = True
+        
+        # Текст вопроса
+        bot.send_message(received_msg[2].chat.id, question_data[0][i])
+        
+        # Ответ пользователя на вопрос
+        received_msg[0] = 'wait'
+        timer = 70
+        while True:
+            if received_msg[0] == 'received' and timer >= 0:
+                bot.send_message(received_msg[2].chat.id, f'Ответ "{received_msg[1]}" принят.')
+                break
+            elif timer == 10:
+                bot.send_message(received_msg[2].chat.id, 'Осталось 10 секунд.\nПора сдавать ответ!')
+                timer -= 1
+                time.sleep(1)
+            elif timer >= 0:
+                timer -= 1
+                time.sleep(1)
+            else:
+                received_msg[0] = 'not_received'
+                bot.send_message(received_msg[2].chat.id, 'Время вышло :(')
+                break
+        
+        # Раздатка (картинка) для комментария
+        if comment_illustr:
+            bot.send_photo(received_msg[2].chat.id, requests.get(question_data[2][i][1]).content)
+        
+        # Ответ, зачёт, комментарий
+        bot.send_message(received_msg[2].chat.id, question_data[3][i])
+
+    received_msg[0] = 'status'
+    received_msg[1] = 'text'
+    bot.send_message(received_msg[2].chat.id, 'Игра окончена. Буду рад сыграть с Вами снова! :)')
+    
 
 if __name__ == '__main__':
     bot.polling(none_stop=True)
