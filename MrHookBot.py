@@ -1,3 +1,4 @@
+from xml.etree.ElementTree import TreeBuilder
 import config
 import requests
 import telebot
@@ -79,8 +80,6 @@ def parse_questions(web_page) -> tuple:
 
 
 received_msg = ['status', 'text', 'chat.id']
-question_data = ()
-amount = int(0)
 
 
 @bot.message_handler(commands=['start'])
@@ -96,9 +95,10 @@ def get_start(message):
 
 @bot.message_handler(commands=['finish'])
 def get_finish(message):
-    # received_msg[0] = 'status'
-    # received_msg[1] = 'text'
-    bot.send_message(message.chat.id, 'Игра закончена досрочно. Буду рад сыграть с Вами снова! :)')
+    received_msg[0] = 'status'
+    received_msg[1] = 'text'
+    bot.send_message(message.chat.id, 'Игра закончена. Буду рад сыграть с Вами снова! :)')
+    received_msg[2] = 'chat.id'
 
 
 @bot.message_handler(content_types=['text'])
@@ -107,7 +107,25 @@ def read_answer(message):
         received_msg[1] = message.text.strip()
         received_msg[0] = 'received'
     else:
-        bot.send_message(message.chat.id, 'Я не понял :(\nСкорее всего, это сообщение лишнее.')
+        bot.send_message(message.chat.id, "Я не понял :(\nСкорее всего, это сообщение лишнее.\n\nЕсть команда /start для начала новой игры и / finish для досрочного окончания игры.\n\nОбратите внимание, что после прочтения текста вопроса нужно запустить таймер, нажав на кнопку под моим сообщением с текстом вопроса. Только после этого я смогу принять Ваш ответ.".replace('/ f', '/f'))
+
+
+def inline_keyboard_msg(button_text, msg_text):
+    keyboard = telebot.types.InlineKeyboardMarkup()
+    if button_text in ['Следующий вопрос', 'Далее']:
+        keyboard.add(telebot.types.InlineKeyboardButton(button_text, callback_data="next_question"))
+    elif button_text == 'Запустить таймер':
+        keyboard.add(telebot.types.InlineKeyboardButton(button_text, callback_data="start_timer"))
+    bot.send_message(received_msg[2].chat.id, msg_text, reply_markup=keyboard)
+
+
+@bot.callback_query_handler(lambda call: call.data in ["next_question", "start_timer"])
+def handle_callback(call: telebot.types.CallbackQuery):
+    if call.data == "next_question":
+        received_msg[0] = 'next_question'
+    elif call.data == "start_timer":
+        received_msg[0] = 'start_timer'
+    bot.answer_callback_query(callback_query_id=call.id)
 
 
 def game():
@@ -117,7 +135,7 @@ def game():
             try:
                 amount = int(received_msg[1])
             except Exception:
-                bot.send_message(received_msg[2].chat.id, 'Я не понял :(\nПожалуйста, введите целое число или нажмите на нужную кнопку.')
+                bot.send_message(received_msg[2].chat.id, 'Я не понял :(\nПожалуйста, нажмите на нужную кнопку или введите целое число.')
                 received_msg[0] = 'wait'
                 time.sleep(0.25)
                 continue
@@ -137,7 +155,7 @@ def game():
     while True:
         if received_msg[0] == 'received' and received_msg[1] in complexity_options:
             complexity = f'complexity{complexity_options.index(received_msg[1])}'
-            bot.send_message(received_msg[2].chat.id, f'Итак, играем {received_msg[1].lower()} пакет.\nКоличество вопросов: {amount}.\nУдачи! :)', reply_markup=telebot.types.ReplyKeyboardRemove())
+            bot.send_message(received_msg[2].chat.id, f'Итак, играем {received_msg[1].lower()} пакет.\nКоличество вопросов: {amount}\nУдачи! :)', reply_markup=telebot.types.ReplyKeyboardRemove())
             break
         elif received_msg[0] == 'received':
             bot.send_message(received_msg[2].chat.id, 'Я не понял :(\nПожалуйста, выберите желаемую сложность пакета вопросов с помощью кнопок.')
@@ -145,7 +163,7 @@ def game():
             time.sleep(0.25)
         else:
             time.sleep(0.25)
-    
+
     # Получение вопросов с сайта базы вопросов
     web_page = get_page(amount, complexity)
     question_data = parse_questions(web_page)
@@ -168,11 +186,14 @@ def game():
                 comment_illustr = True
         
         # Текст вопроса
-        bot.send_message(received_msg[2].chat.id, question_data[0][i])
-        
+        inline_keyboard_msg('Запустить таймер', question_data[0][i])
+        while received_msg[0] != 'start_timer':
+            time.sleep(0.2)
+
         # Ответ пользователя на вопрос
         received_msg[0] = 'wait'
         timer = 70
+        bot.send_message(received_msg[2].chat.id, 'Время пошло!')
         while True:
             if received_msg[0] == 'received' and timer >= 0:
                 bot.send_message(received_msg[2].chat.id, f'Ответ "{received_msg[1]}" принят.')
@@ -194,7 +215,12 @@ def game():
             bot.send_photo(received_msg[2].chat.id, requests.get(question_data[2][i][1]).content)
         
         # Ответ, зачёт, комментарий
-        bot.send_message(received_msg[2].chat.id, question_data[3][i])
+        if i < amount - 1:
+            inline_keyboard_msg('Следующий вопрос', question_data[3][i])
+        else:
+            inline_keyboard_msg('Далее', question_data[3][i])
+        while received_msg[0] != 'next_question':
+            time.sleep(0.2)
 
     received_msg[0] = 'status'
     received_msg[1] = 'text'
@@ -202,4 +228,8 @@ def game():
     
 
 if __name__ == '__main__':
-    bot.polling(none_stop=True)
+    while True:
+        try:
+            bot.polling(none_stop=True)
+        except Exception:
+            continue
