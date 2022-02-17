@@ -1,4 +1,3 @@
-from xml.etree.ElementTree import TreeBuilder
 import config
 import requests
 import telebot
@@ -36,7 +35,7 @@ def parse_questions(web_page) -> tuple:
     # Массив с ответами
     answers = [q.find_all(string=re.compile("Ответ:")) for q in questions_info]
     for i, ans in enumerate(answers):
-        answers[i] = " ".join(ans[0].find_parent("p").text.split())
+        answers[i] = " ".join(ans[0].find_parent("p").text.split()).replace('Ответ:', '<strong>Ответ:</strong>')
     
     handouts = [] # Массив с данными о текстовых раздатках
     illustrations = [] # Массив с данными о раздатках (картинках)
@@ -69,12 +68,12 @@ def parse_questions(web_page) -> tuple:
         alter_answers = None # Данные о зачёте (альтернативных ответах)
         alter_answers = questions_info[i].find_all(string=re.compile("Зачёт"))
         if alter_answers:
-            answers[i] += "\n" + " ".join(alter_answers[0].find_parent("p").text.split())
+            answers[i] += "\n" + " ".join(alter_answers[0].find_parent("p").text.split()).replace('Зачёт:', '<strong>Зачёт:</strong>')
 
         comment = None # Данные об авторских комментариях к ответам
         comment = questions_info[i].find_all(string=re.compile("Комментарий"))
         if comment:
-            answers[i] += "\n\n" + " ".join(comment[0].find_parent("p").text.split())
+            answers[i] += "\n\n" + " ".join(comment[0].find_parent("p").text.split()).replace('Комментарий:', '<strong>Комментарий:</strong>')
 
     return question_texts, handouts, illustrations, answers
 
@@ -95,7 +94,7 @@ def get_start(message):
 
 @bot.message_handler(commands=['finish'])
 def get_finish(message):
-    received_msg[0] = 'status'
+    received_msg[0] = 'finish'
     received_msg[1] = 'text'
     bot.send_message(message.chat.id, 'Игра закончена. Буду рад сыграть с Вами снова! :)')
     received_msg[2] = 'chat.id'
@@ -114,16 +113,18 @@ def inline_keyboard_msg(button_text, msg_text):
     keyboard = telebot.types.InlineKeyboardMarkup()
     if button_text in ['Следующий вопрос', 'Далее']:
         keyboard.add(telebot.types.InlineKeyboardButton(button_text, callback_data="next_question"))
+        received_msg[0] = 'wait_next_callback'
     elif button_text == 'Запустить таймер':
         keyboard.add(telebot.types.InlineKeyboardButton(button_text, callback_data="start_timer"))
-    bot.send_message(received_msg[2].chat.id, msg_text, reply_markup=keyboard)
+        received_msg[0] = 'wait_start_callback'
+    bot.send_message(received_msg[2].chat.id, msg_text, reply_markup=keyboard, parse_mode='HTML')
 
 
 @bot.callback_query_handler(lambda call: call.data in ["next_question", "start_timer"])
 def handle_callback(call: telebot.types.CallbackQuery):
-    if call.data == "next_question":
+    if call.data == "next_question" and received_msg[0] == 'wait_next_callback':
         received_msg[0] = 'next_question'
-    elif call.data == "start_timer":
+    elif call.data == "start_timer" and received_msg[0] == 'wait_start_callback':
         received_msg[0] = 'start_timer'
     bot.answer_callback_query(callback_query_id=call.id)
 
@@ -140,6 +141,8 @@ def game():
                 time.sleep(0.25)
                 continue
             break
+        elif received_msg[0] == 'finish':
+            return None
         else:
             time.sleep(0.25)
     
@@ -161,6 +164,8 @@ def game():
             bot.send_message(received_msg[2].chat.id, 'Я не понял :(\nПожалуйста, выберите желаемую сложность пакета вопросов с помощью кнопок.')
             received_msg[0] = 'wait'
             time.sleep(0.25)
+        elif received_msg[0] == 'finish':
+            return None
         else:
             time.sleep(0.25)
 
@@ -168,9 +173,10 @@ def game():
     web_page = get_page(amount, complexity)
     question_data = parse_questions(web_page)
 
+    result = 0
     for i in range(amount):
         # Номер вопроса
-        bot.send_message(received_msg[2].chat.id, f'Вопрос №{i + 1}')
+        bot.send_message(received_msg[2].chat.id, f'<strong>Вопрос №{i + 1}</strong>', parse_mode='HTML', reply_markup=telebot.types.ReplyKeyboardRemove())
         
         # Текстовая раздатка
         if question_data[1][i]:
@@ -196,8 +202,11 @@ def game():
         bot.send_message(received_msg[2].chat.id, 'Время пошло!')
         while True:
             if received_msg[0] == 'received' and timer >= 0:
-                bot.send_message(received_msg[2].chat.id, f'Ответ "{received_msg[1]}" принят.')
+                user_answer = received_msg[1]
+                bot.send_message(received_msg[2].chat.id, f'Ответ "{user_answer}" принят.')
                 break
+            elif received_msg[0] == 'finish':
+                return None
             elif timer == 10:
                 bot.send_message(received_msg[2].chat.id, 'Осталось 10 секунд.\nПора сдавать ответ!')
                 timer -= 1
@@ -207,6 +216,7 @@ def game():
                 time.sleep(1)
             else:
                 received_msg[0] = 'not_received'
+                user_answer = ''
                 bot.send_message(received_msg[2].chat.id, 'Время вышло :(')
                 break
         
@@ -215,16 +225,45 @@ def game():
             bot.send_photo(received_msg[2].chat.id, requests.get(question_data[2][i][1]).content)
         
         # Ответ, зачёт, комментарий
+        bot.send_message(received_msg[2].chat.id, question_data[3][i], parse_mode='HTML')
+        
+        # Засчитывание ответа
+        if user_answer:
+            correct_options = ['Да', 'Нет']
+            markup=telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=2)
+            markup.add(*correct_options)
+            bot.send_message(received_msg[2].chat.id, f'Ваш ответ "{user_answer}" попадает в зачёт?', reply_markup=markup)
+            
+            received_msg[0] = 'wait'
+            while True:
+                if received_msg[0] == 'received' and received_msg[1] in correct_options:
+                    if received_msg[1] == 'Да':
+                        result += 1
+                    break
+                elif received_msg[0] == 'received':
+                    bot.send_message(received_msg[2].chat.id, 'Я не понял :(\nПожалуйста, ответьте на мой вопрос с помощью кнопок или клавиатуры (Да / Нет)')
+                    received_msg[0] = 'wait'
+                    time.sleep(0.25)
+                elif received_msg[0] == 'finish':
+                    return None
+                else:
+                    time.sleep(0.25)
+        
         if i < amount - 1:
-            inline_keyboard_msg('Следующий вопрос', question_data[3][i])
+            inline_keyboard_msg('Следующий вопрос', f'Текущий результат: {result} из {i + 1}')
         else:
-            inline_keyboard_msg('Далее', question_data[3][i])
-        while received_msg[0] != 'next_question':
-            time.sleep(0.2)
-
+            inline_keyboard_msg('Далее', f'Текущий результат: {result} из {i + 1}')
+        while True:
+            if received_msg[0] == 'next_question':
+                break
+            elif received_msg[0] == 'finish':
+                return None
+            else:
+                time.sleep(0.2)
+    
     received_msg[0] = 'status'
     received_msg[1] = 'text'
-    bot.send_message(received_msg[2].chat.id, 'Игра окончена. Буду рад сыграть с Вами снова! :)')
+    bot.send_message(received_msg[2].chat.id, 'Игра окончена. Буду рад сыграть с Вами снова! :)', reply_markup=telebot.types.ReplyKeyboardRemove())
     
 
 if __name__ == '__main__':
