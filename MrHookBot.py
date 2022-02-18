@@ -4,6 +4,7 @@ import telebot
 from bs4 import BeautifulSoup
 import re
 import time
+import threading
 
 
 bot = telebot.TeleBot(config.access_token)
@@ -83,14 +84,17 @@ received_msg = {}
 
 @bot.message_handler(commands=['start'])
 def get_start(message):
-    received_msg[message.chat.id] = ['status', 'text', 'chat.id']
-    received_msg[message.chat.id][2] = message.chat.id
+    if message.chat.id in received_msg.keys() and received_msg[message.chat.id][0] not in ['wait_start', 'finish']:
+        bot.send_message(message.chat.id, r'Игра уже запущена. Можно ввести команду /finish, чтобы прервать её. После этого можно начать новую игру.')
+        return None
+    received_msg[message.chat.id] = ['status', 'text']
     amount_options = ['12', '24', '36', '45', '60', '90']
     markup=telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=3)
     markup.add(*amount_options)
     bot.send_message(message.chat.id, 'Привет! Я умею задавать вопросы из базы спортивного "Что? Где? Когда?".\n\nСколько вопросов Вы хотите отыграть?\n\nВы можете выбрать один из предложенных вариантов, нажав на кнопку, или ввести любое число с помощью клавиатуры.', reply_markup=markup)
     received_msg[message.chat.id][0] = 'wait'
-    game(message.chat.id)
+    game_thread = threading.Thread(target=game, args=[message.chat.id])
+    game_thread.start()
 
 
 @bot.message_handler(commands=['finish'])
@@ -98,7 +102,6 @@ def get_finish(message):
     received_msg[message.chat.id][0] = 'finish'
     received_msg[message.chat.id][1] = 'text'
     bot.send_message(message.chat.id, 'Игра закончена. Буду рад сыграть с Вами снова! :)')
-    received_msg[message.chat.id][2] = 'chat.id'
 
 
 @bot.message_handler(content_types=['text'])
@@ -152,10 +155,9 @@ def game(chat_id):
     
     markup=telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=2)
     markup.add(*complexity_options)
-    
     bot.send_message(chat_id, 'Выберите, пожалуйста, желаемую сложность пакета вопросов, нажав на нужную кнопку.', reply_markup=markup)
-    received_msg[chat_id][0] = 'wait'
     
+    received_msg[chat_id][0] = 'wait'
     while True:
         if received_msg[chat_id][0] == 'received' and received_msg[chat_id][1] in complexity_options:
             complexity = f'complexity{complexity_options.index(received_msg[chat_id][1])}'
@@ -252,6 +254,7 @@ def game(chat_id):
                 else:
                     time.sleep(0.25)
         
+        # Промежуточный результат и переход к следующему вопросу
         if i < amount - 1:
             inline_keyboard_msg('Следующий вопрос', f'Текущий результат: {result} из {i + 1}', chat_id)
         else:
@@ -263,11 +266,12 @@ def game(chat_id):
                 return None
             else:
                 time.sleep(0.2)
-    
-    received_msg[chat_id][0] = 'status'
+
+    received_msg[chat_id][0] = 'wait_start'
     received_msg[chat_id][1] = 'text'
-    bot.send_message(chat_id, f'Игра окончена.\n\nИтоговый результат: {result} из {amount}\n\nБуду рад сыграть с Вами снова! :)', reply_markup=telebot.types.ReplyKeyboardRemove())
-    
+    bot.send_message(chat_id, f'Игра окончена.\nИтоговый результат: {result} из {amount}\n\nБуду рад сыграть с Вами снова! :)', reply_markup=telebot.types.ReplyKeyboardRemove())
+    return None
+
 
 if __name__ == '__main__':
     while True:

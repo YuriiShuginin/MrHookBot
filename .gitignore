@@ -2,3 +2,4 @@ __pycache__/
 config.py
 *.doc[x]
 try*.py
+MrHookBot_draft.py
