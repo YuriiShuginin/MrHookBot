@@ -1,5 +1,7 @@
 __pycache__/
 config.py
 *.doc[x]
+*.pptx
+*.pdf
 try*.py
 MrHookBot_draft.py

@@ -91,7 +91,7 @@ def get_start(message):
     amount_options = ['12', '24', '36', '45', '60', '90']
     markup=telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=3)
     markup.add(*amount_options)
-    bot.send_message(message.chat.id, 'Привет! Я умею задавать вопросы из базы спортивного "Что? Где? Когда?".\n\nСколько вопросов Вы хотите отыграть?\n\nВы можете выбрать один из предложенных вариантов, нажав на кнопку, или ввести любое число с помощью клавиатуры.', reply_markup=markup)
+    bot.send_message(message.chat.id, 'Что наша жизнь? Игра!\n\nСколько вопросов Вы хотите отыграть?\n\nВы можете выбрать один из предложенных вариантов, нажав на кнопку, или ввести любое число с помощью клавиатуры.', reply_markup=markup)
     received_msg[message.chat.id][0] = 'wait'
     game_thread = threading.Thread(target=game, args=[message.chat.id])
     game_thread.start()
@@ -99,18 +99,21 @@ def get_start(message):
 
 @bot.message_handler(commands=['finish'])
 def get_finish(message):
+    if message.chat.id not in received_msg.keys():
+        bot.send_message(message.chat.id, 'Сейчас нет запущенной игры.\nНечего завершать :(\n\nИспользуйте команду /start для начала новой игры.')
+        return None
     received_msg[message.chat.id][0] = 'finish'
     received_msg[message.chat.id][1] = 'text'
-    bot.send_message(message.chat.id, 'Игра закончена. Буду рад сыграть с Вами снова! :)')
+    bot.send_message(message.chat.id, 'Игра закончена. Буду рад сыграть с Вами снова! :)', reply_markup=telebot.types.ReplyKeyboardRemove())
 
 
 @bot.message_handler(content_types=['text'])
 def read_answer(message):
-    if received_msg[message.chat.id][0] == 'wait':
+    if message.chat.id in received_msg.keys() and received_msg[message.chat.id][0] == 'wait':
         received_msg[message.chat.id][1] = message.text.strip()
         received_msg[message.chat.id][0] = 'received'
     else:
-        bot.send_message(message.chat.id, "Я не понял :(\nСкорее всего, это сообщение лишнее.\n\nЕсть команда /start для начала новой игры и / finish для досрочного окончания игры.\n\nОбратите внимание, что после прочтения текста вопроса нужно запустить таймер, нажав на кнопку под моим сообщением с текстом вопроса. Только после этого я смогу принять Ваш ответ.".replace('/ f', '/f'))
+        bot.send_message(message.chat.id, "Я не понял :(\nСкорее всего, это сообщение лишнее.\n\nЕсть команда / start для начала новой игры и / finish для досрочного окончания уже запущенной игры.\n\nОбратите внимание, что после прочтения текста вопроса нужно запустить таймер, нажав на кнопку под моим сообщением с текстом вопроса. Только после этого я смогу принять Ваш ответ.".replace('/ ', '/'))
 
 
 def inline_keyboard_msg(button_text, msg_text, chat_id):
