@@ -3,5 +3,6 @@ config.py
 *.doc[x]
 *.pptx
 *.pdf
+*.zip
 try*.py
 MrHookBot_draft.py
