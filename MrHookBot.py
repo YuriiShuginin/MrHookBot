@@ -5,6 +5,8 @@ from bs4 import BeautifulSoup
 import re
 import time
 import threading
+from gtts import gTTS
+from tempfile import NamedTemporaryFile
 
 
 bot = telebot.TeleBot(config.access_token)
@@ -116,16 +118,21 @@ def read_answer(message):
         bot.send_message(message.chat.id, "Я не понял :(\nСкорее всего, это сообщение лишнее.\n\nЕсть команда / start для начала новой игры и / finish для досрочного окончания уже запущенной игры.\n\nОбратите внимание, что после прочтения текста вопроса нужно запустить таймер, нажав на кнопку под моим сообщением с текстом вопроса. Только после этого я смогу принять Ваш ответ.".replace('/ ', '/'))
 
 
-def inline_keyboard_msg(button_text, msg_text, chat_id):
+def inline_keyboard_msg(button_text, msg_text, chat_id, is_audio=False, q_num=0):
     keyboard = telebot.types.InlineKeyboardMarkup()
+
     if button_text in ['Следующий вопрос', 'Далее']:
         keyboard.add(telebot.types.InlineKeyboardButton(button_text, callback_data="next_question"))
         received_msg[chat_id][0] = 'wait_next_callback'
     elif button_text == 'Запустить таймер':
         keyboard.add(telebot.types.InlineKeyboardButton(button_text, callback_data="start_timer"))
         received_msg[chat_id][0] = 'wait_start_callback'
-    bot.send_message(chat_id, msg_text, reply_markup=keyboard, parse_mode='HTML')
-
+    
+    if is_audio:
+        bot.send_audio(chat_id, msg_text, title=f'Вопрос_{q_num}.mp3', reply_markup=keyboard, parse_mode='HTML')
+    else:
+        bot.send_message(chat_id, msg_text, reply_markup=keyboard, parse_mode='HTML')
+    
 
 @bot.callback_query_handler(lambda call: call.data in ["next_question", "start_timer"])
 def handle_callback(call: telebot.types.CallbackQuery):
@@ -153,6 +160,27 @@ def game(chat_id):
         else:
             time.sleep(0.25)
     
+    # Выбор формата вопроса (текст или аудио)
+    format_list = ['Текст', 'Аудио']
+
+    markup_formats=telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=2)
+    markup_formats.add(*format_list)
+    bot.send_message(chat_id, 'Выберите, пожалуйста, желаемый формат представления вопросов, нажав на нужную кнопку.', reply_markup=markup_formats)
+
+    received_msg[chat_id][0] = 'wait'
+    while True:
+        if received_msg[chat_id][0] == 'received' and received_msg[chat_id][1] in format_list:
+            format = received_msg[chat_id][1]
+            break
+        elif received_msg[chat_id][0] == 'received':
+            bot.send_message(chat_id, 'Я не понял :(\nПожалуйста, выберите желаемый формат представления вопросов с помощью кнопок.')
+            received_msg[chat_id][0] = 'wait'
+            time.sleep(0.25)
+        elif received_msg[chat_id][0] == 'finish':
+            return None
+        else:
+            time.sleep(0.25)
+
     # Выбор сложности пакета вопросов для игры
     complexity_options = ['Любой', 'Очень простой', 'Простой', 'Средний', 'Сложный', 'Очень сложный']
     
@@ -198,7 +226,20 @@ def game(chat_id):
                 comment_illustr = True
         
         # Текст вопроса
-        inline_keyboard_msg('Запустить таймер', question_data[0][i], chat_id)
+        if format == 'Аудио':
+            player = NamedTemporaryFile(suffix=".mp3")
+
+            audio = gTTS(text=question_data[0][i], lang="ru", slow=True)
+            audio.write_to_fp(player)
+            
+            msg = open(player.name, 'rb')
+            inline_keyboard_msg('Запустить таймер', msg, chat_id, is_audio=True, q_num=i+1)
+            
+            msg.close()
+            player.close()
+        else:
+            inline_keyboard_msg('Запустить таймер', question_data[0][i], chat_id)
+
         while received_msg[chat_id][0] != 'start_timer':
             if received_msg[chat_id][0] == 'finish':
                 return None
