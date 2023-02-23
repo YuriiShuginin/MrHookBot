@@ -5,4 +5,4 @@ Telegram bot for playing the intellectual game "What? Where? When?".
 
 Question data is taken from https://db.chgk.info/.
 
-A detailed description in Russian is available in Презентация_[...].pdf & Отчёт_[...].pdf files.
+A detailed description is available in Презентация_[...].pdf & Отчёт_[...].pdf files.
